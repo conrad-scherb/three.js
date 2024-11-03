@@ -7,6 +7,8 @@ import {
 	PlaneGeometry,
 	Texture,
 	SRGBColorSpace,
+	Matrix4,
+	Plane,
 } from "three";
 
 /**
@@ -187,9 +189,13 @@ class VolumeSlice {
 	 * @memberof VolumeSlice
 	 */
 	updateGeometry() {
-		const extracted = this.volume.extractPerpendicularPlane(
-			this.axis,
-			this.index
+		const plane = new Plane();
+
+		plane.normal.set(0, 0, 1);
+		plane.constant = 0;
+
+		const extracted = this.volume.extractPlane(
+			plane
 		);
 		this.sliceAccess = extracted.sliceAccess;
 		this.jLength = extracted.jLength;

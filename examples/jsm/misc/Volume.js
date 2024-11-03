@@ -1,4 +1,4 @@
-import { Matrix3, Matrix4, Vector3 } from "three";
+import { Matrix3, Matrix4, Vector3, Box3, Line3 } from "three";
 import { VolumeSlice } from "../misc/VolumeSlice.js";
 
 /**
@@ -407,7 +407,7 @@ class Volume {
 	}
 
 	getPlaneIntersectionsWithBox3(plane, box) {
-		const edges = getBox3Edges(box);
+		const edges = this.getBox3Edges(box);
 
 		const intersections = edges
 			.map((edge) => {
@@ -428,7 +428,7 @@ class Volume {
 			new Vector3(...this.RASDimensions)
 		);
 
-		const intersections = getPlaneIntersectionsWithBox3(plane);
+		const intersections = this.getPlaneIntersectionsWithBox3(plane, volumeBox);
 
 		const origin = intersections[0];
 
@@ -456,7 +456,7 @@ class Volume {
 				[0, 1, 2].reduce(
 					(acc, idx) =>
 						acc +
-						(Math.acos(unitVectors[idx].angleTo(v)) * this.spacing(idx)) ** 2,
+						(Math.acos(unitVectors[idx].angleTo(v)) * this.spacing[idx]) ** 2,
 					0
 				)
 			);
@@ -465,8 +465,33 @@ class Volume {
 		const firstDirectionSpacing = calculateSpacing(firstDirectionUnitVector);
 		const secondDirectionSpacing = calculateSpacing(secondDirectionUnitVector);
 
-		// Build the planematrix Mat4
+		const iLength = Math.floor(
+			origin
+				.clone()
+				.add(firstDirectionUnitVector.clone().multiplyScalar(firstDirectionSpacing))
+				.distanceTo(origin)
+		);
+		const jLength = Math.floor(
+			origin
+				.clone()
+				.add(secondDirectionUnitVector.clone().multiplyScalar(secondDirectionSpacing))
+				.distanceTo(origin)
+		);
+
+		console.log({firstDirectionUnitVector, secondDirectionUnitVector})
+
+		const planeWidth = Math.abs(iLength * firstDirectionSpacing);
+		const planeHeight = Math.abs(jLength * secondDirectionSpacing);
+
+		// The identity matrix represents the plane with normal = z axis, so we need to
+		// rotate the plane matrix to the position of the cut plane
 		const planeMatrix = new Matrix4().identity();
+		planeMatrix.lookAt(
+			origin,
+			origin.clone().add(plane.normal),
+			firstDirectionUnitVector
+		);
+
 
 		const axisInIJK = plane.normal;
 
@@ -474,6 +499,15 @@ class Volume {
 
 		const firstDirection = new Vector3();
 		const secondDirection = new Vector3();
+
+		return {
+			iLength,
+			jLength,
+			sliceAccess: () => 0,
+			matrix: planeMatrix,
+			planeWidth: planeWidth,
+			planeHeight: planeHeight
+		}
 	}
 
 	/**
