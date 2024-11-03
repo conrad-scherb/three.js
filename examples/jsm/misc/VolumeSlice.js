@@ -7,6 +7,7 @@ import {
 	PlaneGeometry,
 	Texture,
 	SRGBColorSpace,
+	Vector3,
 	Matrix4,
 	Plane,
 } from "three";
@@ -147,7 +148,7 @@ class VolumeSlice {
 		} else {
 			for (let j = 0; j < jLength; j++) {
 				for (let i = 0; i < iLength; i++) {
-					let value = volumeData[sliceAccess(i, j)];
+					let value = 1000//volumeData[sliceAccess(i, j)];
 					let alpha = 0xff;
 					//apply threshold
 					alpha =
@@ -189,10 +190,13 @@ class VolumeSlice {
 	 * @memberof VolumeSlice
 	 */
 	updateGeometry() {
-		const plane = new Plane();
+		const sqrt1_3 = Math.sqrt(1 / 3);
 
-		plane.normal.set(0, 0, 1);
-		plane.constant = 0;
+		const plane = new Plane();
+		const normal = new Vector3(Math.SQRT1_2, Math.SQRT1_2, 0).normalize();
+		const point = new Vector3(120, 120, 0);
+
+		plane.setFromNormalAndCoplanarPoint(normal, point)
 
 		const extracted = this.volume.extractPlane(
 			plane
@@ -210,6 +214,8 @@ class VolumeSlice {
 		this.ctxBuffer = this.canvasBuffer.getContext("2d");
 
 		if (this.geometry) this.geometry.dispose(); // dispose existing geometry
+
+		console.log(extracted)
 
 		this.geometry = new PlaneGeometry(
 			extracted.planeWidth,

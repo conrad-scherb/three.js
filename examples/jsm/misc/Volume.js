@@ -1,4 +1,4 @@
-import { Matrix3, Matrix4, Vector3, Box3, Line3 } from "three";
+import { Matrix3, Matrix4, Vector2, Vector3, Box3, Line3 } from "three";
 import { VolumeSlice } from "../misc/VolumeSlice.js";
 
 /**
@@ -421,6 +421,27 @@ class Volume {
 		return intersections;
 	}
 
+	intersectionsTo2DSpace(planeNormal, intersections) {
+		// Center the 2D coordinate system on the first intersection vector
+		const origin = intersections[0];
+	  
+		// The x-axis will be projected on the first to second intersection
+		const xAxisUnitVector = intersections[1].clone().sub(origin).normalize();
+	  
+		// The y-axis will be the cross product of the normal and x-axis
+		const yAxisUnitVector = planeNormal.clone().cross(xAxisUnitVector).normalize();
+	  
+		// Represent each intersection in the 2D coordinate system
+		const points = intersections.map((intersection) => {
+		  const x = intersection.clone().sub(origin).dot(xAxisUnitVector);
+		  const y = intersection.clone().sub(origin).dot(yAxisUnitVector);
+	  
+		  return new Vector2(x, y);
+		});
+	  
+		return points;
+	  }
+
 	extractPlane(plane) {
 		// Find the intersections of the plane with the bounding box representing the volume
 		const volumeBox = new Box3(
@@ -428,20 +449,26 @@ class Volume {
 			new Vector3(...this.RASDimensions)
 		);
 
+		const dimensions = new Vector3(this.xLength, this.yLength, this.zLength);
+
 		const intersections = this.getPlaneIntersectionsWithBox3(plane, volumeBox);
 
 		const origin = intersections[0];
 
+		function absVector(v) {
+			return new Vector3(Math.abs(v.x), Math.abs(v.y), Math.abs(v.z));
+		}
+
 		// Define our 2D projected plane to be in the directions of the first 2 intersections,
 		// hence our second direction will be the cross product of plane normal and that
-		const firstDirectionUnitVector = intersections[1]
+		const firstDirectionUnitVector = absVector(intersections[1]
 			.clone()
 			.sub(origin)
-			.normalize();
-		const secondDirectionUnitVector = plane.normal
+			.normalize())
+		const secondDirectionUnitVector = absVector(plane.normal
 			.clone()
 			.cross(firstDirectionUnitVector)
-			.normalize();
+			.normalize());
 
 		// Now to find the spacing in the first and second directions, we find the angle between
 		// the direction vector & the x/y/z axis unit vectors.
@@ -451,37 +478,45 @@ class Volume {
 
 		const unitVectors = [xUnitVector, yUnitVector, zUnitVector];
 
-		const calculateSpacing = (v) => {
-			return Math.sqrt(
-				[0, 1, 2].reduce(
-					(acc, idx) =>
-						acc +
-						(Math.acos(unitVectors[idx].angleTo(v)) * this.spacing[idx]) ** 2,
-					0
-				)
-			);
-		};
-
-		const firstDirectionSpacing = calculateSpacing(firstDirectionUnitVector);
-		const secondDirectionSpacing = calculateSpacing(secondDirectionUnitVector);
-
-		const iLength = Math.floor(
-			origin
-				.clone()
-				.add(firstDirectionUnitVector.clone().multiplyScalar(firstDirectionSpacing))
-				.distanceTo(origin)
-		);
-		const jLength = Math.floor(
-			origin
-				.clone()
-				.add(secondDirectionUnitVector.clone().multiplyScalar(secondDirectionSpacing))
-				.distanceTo(origin)
-		);
+		function calculateSpacing(v, spacing) {
+			const components = [0, 1, 2].map((idx) => unitVectors[idx].dot(v));
+			const spacings = [0, 1, 2].map((idx) => components[idx] * spacing[idx]);
+			return Math.abs(spacings.reduce((a, b) => a + b, 0))
+		}
 
 		console.log({firstDirectionUnitVector, secondDirectionUnitVector})
 
+		const firstDirectionSpacing = calculateSpacing(firstDirectionUnitVector, this.spacing);
+		const secondDirectionSpacing = calculateSpacing(secondDirectionUnitVector, this.spacing);
+
+		console.log({firstDirectionSpacing, secondDirectionSpacing});
+
+		const iLength = Math.floor(Math.abs(firstDirectionUnitVector.dot(dimensions)));
+		const jLength = Math.floor(Math.abs(secondDirectionUnitVector.dot(dimensions)));
+
 		const planeWidth = Math.abs(iLength * firstDirectionSpacing);
 		const planeHeight = Math.abs(jLength * secondDirectionSpacing);
+		
+
+		const points = this.intersectionsTo2DSpace(
+			new Vector3(...plane.normal),
+			intersections
+		  );
+		
+		  // Find the bounding box of the 2D points in order to find
+		  const xValues = points.map((point) => point.x);
+		  const yValues = points.map((point) => point.y);
+		
+		  const left = Math.min(...xValues);
+		  const right = Math.max(...xValues);
+		  const top = Math.min(...yValues);
+		  const bottom = Math.max(...yValues);
+		
+		  const width = Math.floor(right - left);
+		  const height = Math.floor(bottom - top);
+		
+
+		  console.log({width, height})
 
 		// The identity matrix represents the plane with normal = z axis, so we need to
 		// rotate the plane matrix to the position of the cut plane
@@ -492,6 +527,27 @@ class Volume {
 			firstDirectionUnitVector
 		);
 
+		// Extract an arbritrary point on the plane at point
+		// The plane is in Hessian normal form i.e Ax + By + Cz + D = 0
+		// Therefore a non-trivial solution to the equation is:
+		//  - choose the first non-zero component of the normal vector
+		//  - set the other two components to 0
+		//  - solve for the remaining component
+
+		// 1. Find the first non-zero component of the normal vector
+		const nonZeroComponent = plane.normal.toArray().findIndex((v) => v !== 0);
+
+		// 2. Set the other two components to 0
+		const pointOnPlaneComponents = [0, 0, 0];
+		pointOnPlaneComponents[nonZeroComponent] = -plane.constant / plane.normal.toArray()[nonZeroComponent];
+
+		// 3. Solve for the remaining component
+		const pointOnPlane = new Vector3(...pointOnPlaneComponents);
+
+		planeMatrix.setPosition(pointOnPlane)
+
+		// check if looking matrix is identity
+
 
 		const axisInIJK = plane.normal;
 
@@ -500,13 +556,18 @@ class Volume {
 		const firstDirection = new Vector3();
 		const secondDirection = new Vector3();
 
+		const ilength2 = width / firstDirectionSpacing;
+		const jlength2 = height / secondDirectionSpacing;
+
+		console.log({ilength2, jlength2})
+
 		return {
 			iLength,
 			jLength,
 			sliceAccess: () => 0,
 			matrix: planeMatrix,
-			planeWidth: planeWidth,
-			planeHeight: planeHeight
+			planeWidth: width,
+			planeHeight: height
 		}
 	}
 
